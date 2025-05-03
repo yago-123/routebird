@@ -20,22 +20,30 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // BGPRouteSpec defines the desired state of BGPRoute.
 type BGPRouteSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Match services by label (like how NetworkPolicy or ServiceMonitor works)
+	ServiceSelector metav1.LabelSelector `json:"serviceSelector"`
 
-	// Foo is an example field of BGPRoute. Edit bgproute_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// LocalASN of the node where the route is advertised
+	LocalASN uint32 `json:"localASN"`
+
+	// Peers to which the route should be advertised
+	// +kubebuilder:validation:MinItems=1
+	Peers []BGPPeer `json:"bgpPeers,omitempty"`
+}
+
+type BGPPeer struct {
+	// Address of the remote peer receiving BGP updates
+	// +kubebuilder:validation:Pattern=`^([0-9a-fA-F:.]+)$`
+	Address string `json:"address"`
+	// ASN of the remote peer receiving BGP updates
+	ASN uint32 `json:"asn"`
 }
 
 // BGPRouteStatus defines the observed state of BGPRoute.
 type BGPRouteStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
