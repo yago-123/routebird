@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- bgp_v1alphav1_bgproute.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

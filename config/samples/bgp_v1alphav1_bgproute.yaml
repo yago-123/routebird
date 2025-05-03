@@ -1,0 +1,9 @@
+apiVersion: bgp.routebird.dev/v1alphav1
+kind: BGPRoute
+metadata:
+  labels:
+    app.kubernetes.io/name: routebird
+    app.kubernetes.io/managed-by: kustomize
+  name: bgproute-sample
+spec:
+  # TODO(user): Add fields here

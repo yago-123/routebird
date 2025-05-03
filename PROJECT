@@ -7,4 +7,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: routebird
 repo: github.com/yago-123/routebird
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: routebird.dev
+  group: bgp
+  kind: BGPRoute
+  path: github.com/yago-123/routebird/api/v1alphav1
+  version: v1alphav1
 version: "3"
