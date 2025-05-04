@@ -17,6 +17,7 @@ limitations under the License.
 package v1alphav1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -28,12 +29,20 @@ type BGPRouteSpec struct {
 	// LocalASN of the node where the route is advertised
 	LocalASN uint32 `json:"localASN"`
 
+	BGPLocalPort int32 `json:"bgpLocalPort"`
+
 	// Peers to which the route should be advertised
+	// todo: think on whether might make sense to have 0 peers, since this is a P2P protocol
 	// +kubebuilder:validation:MinItems=1
 	Peers []BGPPeer `json:"bgpPeers,omitempty"`
+
+	// Filtering capabilities for the route advertisement
+	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
+	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 type BGPPeer struct {
+	// todo: add options for DNS resolution
 	// Address of the remote peer receiving BGP updates
 	// +kubebuilder:validation:Pattern=`^([0-9a-fA-F:.]+)$`
 	Address string `json:"address"`

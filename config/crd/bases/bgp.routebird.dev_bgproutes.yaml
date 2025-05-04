@@ -39,12 +39,19 @@ spec:
           spec:
             description: BGPRouteSpec defines the desired state of BGPRoute.
             properties:
+              bgpLocalPort:
+                format: int32
+                type: integer
               bgpPeers:
-                description: Peers to which the route should be advertised
+                description: |-
+                  Peers to which the route should be advertised
+                  todo: think on whether might make sense to have 0 peers, since this is a P2P protocol
                 items:
                   properties:
                     address:
-                      description: Address of the remote peer receiving BGP updates
+                      description: |-
+                        todo: add options for DNS resolution
+                        Address of the remote peer receiving BGP updates
                       pattern: ^([0-9a-fA-F:.]+)$
                       type: string
                     asn:
@@ -61,6 +68,11 @@ spec:
                 description: LocalASN of the node where the route is advertised
                 format: int32
                 type: integer
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: Filtering capabilities for the route advertisement
+                type: object
               serviceSelector:
                 description: Match services by label (like how NetworkPolicy or ServiceMonitor
                   works)
@@ -108,7 +120,46 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+              tolerations:
+                items:
+                  description: |-
+                    The pod this Toleration is attached to tolerates any taint that matches
+                    the triple <key,value,effect> using the matching operator <operator>.
+                  properties:
+                    effect:
+                      description: |-
+                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: |-
+                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      type: string
+                    operator:
+                      description: |-
+                        Operator represents a key's relationship to the value.
+                        Valid operators are Exists and Equal. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod can
+                        tolerate all taints of a particular category.
+                      type: string
+                    tolerationSeconds:
+                      description: |-
+                        TolerationSeconds represents the period of time the toleration (which must be
+                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                        negative values will be treated as 0 (evict immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: |-
+                        Value is the taint value the toleration matches to.
+                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
             required:
+            - bgpLocalPort
             - localASN
             - serviceSelector
             type: object

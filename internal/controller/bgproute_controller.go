@@ -19,6 +19,10 @@ package controller
 import (
 	"context"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,10 +51,42 @@ type BGPRouteReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var route bgpv1alphav1.BGPRoute
+	// Retrieve the BGPRoute instance
+	if err := r.Get(ctx, req.NamespacedName, &route); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
+	// Define the desired DaemonSet
+	newDSAgent := buildDaemonSet(route)
+
+	// Set owner reference to the DaemonSet
+	if err := ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Check if the DaemonSet already exists
+	var existingDSAgent appsv1.DaemonSet
+	err := r.Get(ctx, client.ObjectKey{Name: newDSAgent.Name, Namespace: newDSAgent.Namespace}, &existingDSAgent)
+
+	// If not found, create it
+	if err != nil && apierrors.IsNotFound(err) {
+		if errCreate := r.Create(ctx, &newDSAgent); errCreate != nil {
+			logger.Error(errCreate, "Failed to create DaemonSet", "DaemonSet.Name", newDSAgent.Name)
+			return ctrl.Result{}, errCreate
+		}
+
+		logger.Info("Created DaemonSet", "DaemonSet.name", newDSAgent.Name)
+	} else if err != nil {
+		logger.Error(err, "Failed to get DaemonSet", "DaemonSet.Name", newDSAgent.Name)
+		return ctrl.Result{}, err
+	} else {
+		logger.Info("DaemonSet already exists", "DaemonSet.Name", newDSAgent.Name)
+	}
+
+	// SOME MORE CODE
 	return ctrl.Result{}, nil
 }
 
@@ -60,4 +96,44 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&bgpv1alphav1.BGPRoute{}).
 		Named("bgproute").
 		Complete(r)
+}
+
+func buildDaemonSet(route bgpv1alphav1.BGPRoute) appsv1.DaemonSet {
+	labels := map[string]string{"app": "bgp-agent", "route": route.Name}
+
+	return appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "routebird-agent-" + route.Name,
+			Namespace: route.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					// HostNetwork must be true in order to bind to the host's network
+					HostNetwork: true,
+					Containers: []corev1.Container{
+						{
+							Name: "routebird-agent",
+							// todo: make image configurable, for now will just be hardcoded
+							// Image: route.Spec,Image,
+							Image: "yago-123/routebird-agent:latest",
+							Ports: []corev1.ContainerPort{
+								{ContainerPort: route.Spec.BGPLocalPort, Name: "bgp", Protocol: corev1.ProtocolTCP},
+							},
+						},
+					},
+					// Filter in which nodes the agent will run
+					NodeSelector: route.Spec.NodeSelector,
+					Tolerations:  route.Spec.Tolerations,
+				},
+			},
+		},
+	}
 }
