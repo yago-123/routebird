@@ -23,18 +23,25 @@ import (
 
 // BGPRouteSpec defines the desired state of BGPRoute.
 type BGPRouteSpec struct {
-	// Match services by label (like how NetworkPolicy or ServiceMonitor works)
+	// ServiceSelector match services by label
+	// +kubebuilder:default:={"matchLabels":{"__never_match__":"true"}}
 	ServiceSelector metav1.LabelSelector `json:"serviceSelector"`
 
 	// LocalASN of the node where the route is advertised
+	// +kubebuilder:validation:Minimum=1
 	LocalASN uint32 `json:"localASN"`
 
+	// BGPLocalPort is the port used by the BGP agent to listen for incoming BGP connections
+	// +kubebuilder:validation:Minimum=1
 	BGPLocalPort int32 `json:"bgpLocalPort"`
 
 	// Peers to which the route should be advertised
 	// todo: think on whether might make sense to have 0 peers, since this is a P2P protocol
 	// +kubebuilder:validation:MinItems=1
 	Peers []BGPPeer `json:"bgpPeers,omitempty"`
+
+	// Agent details for the route advertisement DaemonSet specification
+	Agent Agent `json:"agent,omitempty"`
 
 	// Filtering capabilities for the route advertisement
 	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
@@ -48,6 +55,15 @@ type BGPPeer struct {
 	Address string `json:"address"`
 	// ASN of the remote peer receiving BGP updates
 	ASN uint32 `json:"asn"`
+}
+
+type Agent struct {
+	// Version of the BGP agent that will announce routes
+	// +kubebuilder:default="latest"
+	Version string `json:"version"`
+
+	// +kubebuilder:default="IfNotPresent"
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy"`
 }
 
 // BGPRouteStatus defines the observed state of BGPRoute.

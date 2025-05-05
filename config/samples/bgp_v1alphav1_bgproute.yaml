@@ -4,6 +4,18 @@ metadata:
   labels:
     app.kubernetes.io/name: routebird
     app.kubernetes.io/managed-by: kustomize
-  name: bgproute-sample
+  name: bgproute
 spec:
-  # TODO(user): Add fields here
+  # Service selector to identify the service to be exposed
+  serviceSelector:
+    matchLabels:
+      routebird-expose: "yes"
+  # Common ASN of the local nodes
+  localASN: 64512
+  bgpLocalPort: 179
+  bgpPeers:
+    - address: 192.0.2.1
+      asn: 64513
+  agent:
+    version: "latest"
+    imagePullPolicy: IfNotPresent

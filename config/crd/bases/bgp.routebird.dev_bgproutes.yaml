@@ -39,8 +39,27 @@ spec:
           spec:
             description: BGPRouteSpec defines the desired state of BGPRoute.
             properties:
+              agent:
+                description: Agent details for the route advertisement DaemonSet specification
+                properties:
+                  imagePullPolicy:
+                    default: IfNotPresent
+                    description: PullPolicy describes a policy for if/when to pull
+                      a container image
+                    type: string
+                  version:
+                    default: latest
+                    description: Version of the BGP agent that will announce routes
+                    type: string
+                required:
+                - imagePullPolicy
+                - version
+                type: object
               bgpLocalPort:
+                description: BGPLocalPort is the port used by the BGP agent to listen
+                  for incoming BGP connections
                 format: int32
+                minimum: 1
                 type: integer
               bgpPeers:
                 description: |-
@@ -67,6 +86,7 @@ spec:
               localASN:
                 description: LocalASN of the node where the route is advertised
                 format: int32
+                minimum: 1
                 type: integer
               nodeSelector:
                 additionalProperties:
@@ -74,8 +94,10 @@ spec:
                 description: Filtering capabilities for the route advertisement
                 type: object
               serviceSelector:
-                description: Match services by label (like how NetworkPolicy or ServiceMonitor
-                  works)
+                default:
+                  matchLabels:
+                    __never_match__: "true"
+                description: ServiceSelector match services by label
                 properties:
                   matchExpressions:
                     description: matchExpressions is a list of label selector requirements.

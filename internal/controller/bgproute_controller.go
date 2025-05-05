@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,8 @@ import (
 
 	bgpv1alphav1 "github.com/yago-123/routebird/api/v1alphav1"
 )
+
+const ()
 
 // BGPRouteReconciler reconciles a BGPRoute object
 type BGPRouteReconciler struct {
@@ -64,6 +67,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Set owner reference to the DaemonSet
 	if err := ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference", "DaemonSet.Name", newDSAgent.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -82,11 +86,8 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	} else if err != nil {
 		logger.Error(err, "Failed to get DaemonSet", "DaemonSet.Name", newDSAgent.Name)
 		return ctrl.Result{}, err
-	} else {
-		logger.Info("DaemonSet already exists", "DaemonSet.Name", newDSAgent.Name)
 	}
 
-	// SOME MORE CODE
 	return ctrl.Result{}, nil
 }
 
@@ -99,7 +100,9 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func buildDaemonSet(route bgpv1alphav1.BGPRoute) appsv1.DaemonSet {
-	labels := map[string]string{"app": "bgp-agent", "route": route.Name}
+	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
+
+	image := fmt.Sprintf("yagodev123/routebird-agent:%s", route.Spec.Agent.Version)
 
 	return appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -120,13 +123,12 @@ func buildDaemonSet(route bgpv1alphav1.BGPRoute) appsv1.DaemonSet {
 					HostNetwork: true,
 					Containers: []corev1.Container{
 						{
-							Name: "routebird-agent",
-							// todo: make image configurable, for now will just be hardcoded
-							// Image: route.Spec,Image,
-							Image: "yago-123/routebird-agent:latest",
+							Name:  "routebird-agent",
+							Image: image,
 							Ports: []corev1.ContainerPort{
 								{ContainerPort: route.Spec.BGPLocalPort, Name: "bgp", Protocol: corev1.ProtocolTCP},
 							},
+							ImagePullPolicy: route.Spec.Agent.ImagePullPolicy,
 						},
 					},
 					// Filter in which nodes the agent will run

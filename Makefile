@@ -1,5 +1,6 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG_CONTROLLER ?= yagodev123/routebird-controller:latest
+IMG_AGENT ?= yagodev123/routebird-agent:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -92,40 +93,41 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: manifests generate fmt vet
 	go build -o bin/manager cmd/operator/main.go
+	go build -o bin/agent cmd/agent/main.go
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
+run: manifests generate fmt vet
 	go run ./cmd/operator/main.go
 
-# If you wish to build the manager image targeting other platforms you can use the --platform flag.
-# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
-# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+docker-build:
+	$(CONTAINER_TOOL) build -t ${IMG} . -f ${DOCKERFILE}
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
-# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
-# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
-# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
-# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
-.PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
-	# copy existing Dockerfile.operator and insert --platform=${BUILDPLATFORM} into Dockerfile.operator.cross, and preserve the original Dockerfile.operator
+.PHONY: docker-buildx-operator
+docker-buildx-operator: ## Build and push docker image for the manager for cross-platform support
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile.operator > Dockerfile.operator.cross
-	- $(CONTAINER_TOOL) buildx create --name routebird-builder
-	$(CONTAINER_TOOL) buildx use routebird-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm routebird-builder
+	- $(CONTAINER_TOOL) buildx create --name routebird-builder-operator
+	$(CONTAINER_TOOL) buildx use routebird-builder-operator
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG_CONTROLLER} -f Dockerfile.operator.cross .
+	- $(CONTAINER_TOOL) buildx rm routebird-builder-operator
 	rm Dockerfile.operator.cross
+
+PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+.PHONY: docker-buildx-agent
+docker-buildx-agent: ## Build and push docker image for the manager for cross-platform support
+	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile.agent > Dockerfile.agent.cross
+	- $(CONTAINER_TOOL) buildx create --name routebird-builder-agent
+	$(CONTAINER_TOOL) buildx use routebird-builder-agent
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG_AGENT} -f Dockerfile.agent.cross .
+	- $(CONTAINER_TOOL) buildx rm routebird-builder-agent
+	rm Dockerfile.agent.cross
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
