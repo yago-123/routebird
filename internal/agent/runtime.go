@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 	"github.com/yago-123/routebird/internal/agent/bgp"
-	cfg "github.com/yago-123/routebird/internal/agent/config"
 	"github.com/yago-123/routebird/internal/agent/k8s"
+	cfg "github.com/yago-123/routebird/internal/common"
 	"k8s.io/client-go/kubernetes"
 )
 

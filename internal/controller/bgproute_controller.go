@@ -18,7 +18,10 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/yago-123/routebird/internal/common"
+	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -62,19 +65,79 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Generate the configuration for the BGP agent
+	// todo(): move to a separate function
+	cfg := common.Config{
+		ServiceSelector: route.Spec.ServiceSelector,
+		LocalASN:        route.Spec.LocalASN,
+		BGPLocalPort:    route.Spec.BGPLocalPort,
+		Peers:           route.Spec.Peers,
+	}
+	cfgJSON, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		logger.Error(err, "Failed to marshal config to JSON")
+		return ctrl.Result{}, err
+	}
+
+	// Create or update the ConfigMap with the config
+	// todo(): make to a separate function
+	cfgMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      route.Name + "-config",
+			Namespace: route.Namespace,
+		},
+		Data: map[string]string{
+			"config.json": string(cfgJSON),
+		},
+	}
+	if err = ctrl.SetControllerReference(&route, cfgMap, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference for ConfigMap")
+		return ctrl.Result{}, err
+	}
+
+	var existingCM corev1.ConfigMap
+	// Handle ConfigMap creation or update
+	err = r.Get(ctx, client.ObjectKeyFromObject(cfgMap), &existingCM)
+	// If not found, create it
+	if apierrors.IsNotFound(err) {
+		err = r.Create(ctx, cfgMap)
+		if err != nil {
+			logger.Error(err, "Failed to create ConfigMap")
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Created ConfigMap", "ConfigMap.Name", cfgMap.Name)
+	}
+
+	// If contains error and is not NotFound, return error
+	if err != nil && !apierrors.IsNotFound(err) {
+		logger.Error(err, "Failed to get ConfigMap")
+		return ctrl.Result{}, err
+	}
+
+	// If already existed and it is not equal to the new one, update it
+	if err == nil && !reflect.DeepEqual(existingCM.Data, cfgMap.Data) {
+		existingCM.Data = cfgMap.Data
+		err = r.Update(ctx, &existingCM)
+		if err != nil {
+			logger.Error(err, "Failed to update ConfigMap")
+			return ctrl.Result{}, err
+		}
+		logger.Info("Updated ConfigMap", "ConfigMap.Name", cfgMap.Name)
+	}
+
 	// Define the desired DaemonSet
-	newDSAgent := buildDaemonSet(route)
+	newDSAgent := buildDaemonSet(route, cfgMap.Name)
 
 	// Set owner reference to the DaemonSet
-	if err := ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
+	if err = ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference", "DaemonSet.Name", newDSAgent.Name)
 		return ctrl.Result{}, err
 	}
 
 	// Check if the DaemonSet already exists
 	var existingDSAgent appsv1.DaemonSet
-	err := r.Get(ctx, client.ObjectKey{Name: newDSAgent.Name, Namespace: newDSAgent.Namespace}, &existingDSAgent)
-
+	err = r.Get(ctx, client.ObjectKey{Name: newDSAgent.Name, Namespace: newDSAgent.Namespace}, &existingDSAgent)
 	// If not found, create it
 	if err != nil && apierrors.IsNotFound(err) {
 		if errCreate := r.Create(ctx, &newDSAgent); errCreate != nil {
@@ -83,7 +146,10 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		logger.Info("Created DaemonSet", "DaemonSet.name", newDSAgent.Name)
-	} else if err != nil {
+	}
+
+	// If contains error and is not NotFound, return error
+	if err != nil && !apierrors.IsNotFound(err) {
 		logger.Error(err, "Failed to get DaemonSet", "DaemonSet.Name", newDSAgent.Name)
 		return ctrl.Result{}, err
 	}
@@ -99,7 +165,7 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func buildDaemonSet(route bgpv1alphav1.BGPRoute) appsv1.DaemonSet {
+func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string) appsv1.DaemonSet {
 	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
 
 	image := fmt.Sprintf("yagodev123/routebird-agent:%s", route.Spec.Agent.Version)
@@ -125,10 +191,32 @@ func buildDaemonSet(route bgpv1alphav1.BGPRoute) appsv1.DaemonSet {
 						{
 							Name:  "routebird-agent",
 							Image: image,
+							// todo(): make constant?
+							Args: []string{"--config", "/etc/routebird/config.json"},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "config",
+									MountPath: "/etc/routebird",
+									ReadOnly:  true,
+								},
+							},
 							Ports: []corev1.ContainerPort{
 								{ContainerPort: route.Spec.BGPLocalPort, Name: "bgp", Protocol: corev1.ProtocolTCP},
 							},
 							ImagePullPolicy: route.Spec.Agent.ImagePullPolicy,
+						},
+					},
+					// Mount the ConfigMap as a volume so that it can be accessed by the agent
+					Volumes: []corev1.Volume{
+						{
+							Name: "config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: configMapName,
+									},
+								},
+							},
 						},
 					},
 					// Filter in which nodes the agent will run

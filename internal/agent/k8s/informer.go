@@ -9,3 +9,5 @@ import (
 type ResourceWatcher interface {
 	Start(ctx context.Context)
 }
+
+// start informer of type load balancer

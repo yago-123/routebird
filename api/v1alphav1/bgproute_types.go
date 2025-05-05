@@ -40,12 +40,12 @@ type BGPRouteSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	Peers []BGPPeer `json:"bgpPeers,omitempty"`
 
-	// Agent details for the route advertisement DaemonSet specification
-	Agent Agent `json:"agent,omitempty"`
-
 	// Filtering capabilities for the route advertisement
 	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
 	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// Agent details for the route advertisement DaemonSet specification
+	Agent Agent `json:"agent,omitempty"`
 }
 
 type BGPPeer struct {
