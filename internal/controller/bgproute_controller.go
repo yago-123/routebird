@@ -126,6 +126,8 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		logger.Info("Updated ConfigMap", "ConfigMap.Name", cfgMap.Name)
 	}
 
+	// todo: handle the case in which the config map is modified and the DaemonSet must rollout new pods
+
 	// Define the desired DaemonSet
 	newDSAgent := buildDaemonSet(route, cfgMap.Name)
 
@@ -161,7 +163,9 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&bgpv1alphav1.BGPRoute{}).
-		Named("bgproute").
+		Owns(&corev1.ConfigMap{}).
+		Owns(&appsv1.DaemonSet{}).
+		Named("routebird").
 		Complete(r)
 }
 
