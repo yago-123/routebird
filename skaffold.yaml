@@ -1,0 +1,30 @@
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: routebird
+build:
+  local:
+    push: false
+  artifacts:
+    - image: yagodev123/routebird-agent
+      docker:
+        dockerfile: Dockerfile.agent
+
+manifests:
+  kustomize:
+    paths:
+      - config/samples
+deploy:
+  kubectl: {}
+
+profiles:
+  - name: dev
+    deploy:
+      kubectl: {}
+    manifests:
+      kustomize:
+        paths:
+          - config/samples
+    build:
+      artifacts:
+        - image: yagodev123/routebird-agent
