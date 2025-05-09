@@ -18,10 +18,13 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/yago-123/routebird/internal/common"
 	"reflect"
+	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -124,10 +127,11 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		logger.Info("Updated ConfigMap", "ConfigMap.Name", cfgMap.Name)
 	}
 
-	// todo: handle the case in which the config map is modified and the DaemonSet must rollout new pods
+	// Calculate new config hash after ConfigMap update
+	configMapHash := calculateConfigMapHash(cfgMap.Data)
 
 	// Define the desired DaemonSet
-	newDSAgent := buildDaemonSet(route, cfgMap.Name)
+	newDSAgent := buildDaemonSet(route, cfgMap.Name, configMapHash)
 
 	// Set owner reference to the DaemonSet
 	if err = ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
@@ -167,16 +171,17 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string) appsv1.DaemonSet {
+func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMapHash string) appsv1.DaemonSet {
 	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
 
 	image := fmt.Sprintf("yagodev123/routebird-agent:%s", route.Spec.Agent.Version)
 
 	return appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "routebird-agent-" + route.Name,
-			Namespace: route.Namespace,
-			Labels:    labels,
+			Name:        "routebird-agent-" + route.Name,
+			Namespace:   route.Namespace,
+			Labels:      labels,
+			Annotations: map[string]string{"configMapHash": configMapHash},
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
@@ -228,4 +233,21 @@ func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string) appsv1.Da
 			},
 		},
 	}
+}
+
+// calculateConfigMapHash generates a deterministic hash based on the ConfigMap's data content.
+func calculateConfigMapHash(data map[string]string) string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	// Ensure consistent ordering
+	sort.Strings(keys)
+
+	hasher := sha256.New()
+	for _, k := range keys {
+		hasher.Write([]byte(k))
+		hasher.Write([]byte(data[k]))
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
 }
