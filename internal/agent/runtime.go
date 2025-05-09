@@ -16,7 +16,7 @@ type Runtime struct {
 }
 
 func NewRuntime(cfg cfg.Config, client kubernetes.Interface) *Runtime {
-	bgpManager := bgp.NewManager(cfg.BGPPeers, client)
+	bgpManager := bgp.NewManager(cfg.Peers, client)
 
 	watchers := []k8s.ResourceWatcher{
 		// k8s.NewNodeWatcher(client, bgpManager),

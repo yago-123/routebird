@@ -100,17 +100,15 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	err = r.Get(ctx, client.ObjectKeyFromObject(cfgMap), &existingCM)
 	// If not found, create it
 	if apierrors.IsNotFound(err) {
-		err = r.Create(ctx, cfgMap)
+		errCreate := r.Create(ctx, cfgMap)
 		if err != nil {
-			logger.Error(err, "Failed to create ConfigMap")
-			return ctrl.Result{}, err
+			logger.Error(errCreate, "Failed to create ConfigMap")
+			return ctrl.Result{}, errCreate
 		}
 
 		logger.Info("Created ConfigMap", "ConfigMap.Name", cfgMap.Name)
-	}
-
-	// If contains error and is not NotFound, return error
-	if err != nil && !apierrors.IsNotFound(err) {
+	} else if err != nil && !apierrors.IsNotFound(err) {
+		// If contains error and is not NotFound, return error
 		logger.Error(err, "Failed to get ConfigMap")
 		return ctrl.Result{}, err
 	}
@@ -118,10 +116,10 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// If already existed and it is not equal to the new one, update it
 	if err == nil && !reflect.DeepEqual(existingCM.Data, cfgMap.Data) {
 		existingCM.Data = cfgMap.Data
-		err = r.Update(ctx, &existingCM)
-		if err != nil {
-			logger.Error(err, "Failed to update ConfigMap")
-			return ctrl.Result{}, err
+		errUpdate := r.Update(ctx, &existingCM)
+		if errUpdate != nil {
+			logger.Error(errUpdate, "Failed to update ConfigMap")
+			return ctrl.Result{}, errUpdate
 		}
 		logger.Info("Updated ConfigMap", "ConfigMap.Name", cfgMap.Name)
 	}

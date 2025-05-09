@@ -1,7 +1,7 @@
 package bgp
 
 import (
-	cfg "github.com/yago-123/routebird/internal/agent/config"
+	"github.com/yago-123/routebird/api/v1alphav1"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -13,11 +13,11 @@ type Manager interface {
 }
 
 type manager struct {
-	peers  []cfg.Peer
+	peers  []v1alphav1.BGPPeer
 	client kubernetes.Interface
 }
 
-func NewManager(peers []cfg.Peer, client kubernetes.Interface) Manager {
+func NewManager(peers []v1alphav1.BGPPeer, client kubernetes.Interface) Manager {
 	return &manager{
 		peers:  peers,
 		client: client,
