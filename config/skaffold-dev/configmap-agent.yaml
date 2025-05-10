@@ -1,0 +1,22 @@
+apiVersion: v1
+data:
+  config.json: |-
+    {
+      "ServiceSelector": {
+        "matchLabels": {
+          "routebird-expose": "yes"
+        }
+      },
+      "LocalASN": 64512,
+      "BGPLocalPort": 179,
+      "Peers": [
+        {
+          "address": "192.0.2.1",
+          "asn": 64513
+        }
+      ]
+    }
+kind: ConfigMap
+metadata:
+  name: routebird-config
+  namespace: default

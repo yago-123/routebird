@@ -1,0 +1,20 @@
+apiVersion: bgp.routebird.dev/v1alphav1
+kind: BGPRoute
+metadata:
+  labels:
+    app.kubernetes.io/name: routebird
+    app.kubernetes.io/managed-by: kustomize
+  name: bgproute
+spec:
+  serviceSelector:
+    matchLabels:
+      routebird-expose: "yes"
+  localASN: 64512
+  bgpLocalPort: 179
+  bgpPeers:
+    - address: 192.0.2.1
+      asn: 64513
+  agent:
+    image: "yagodev123/routebird-agent"
+    version: "latest"
+    imagePullPolicy: IfNotPresent

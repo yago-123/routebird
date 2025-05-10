@@ -1,0 +1,3 @@
+resources:
+  - daemonset-agent.yaml
+  - configmap-agent.yaml

@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: routebird-agent
+  labels:
+    app: routebird-agent
+spec:
+  selector:
+    matchLabels:
+      app: routebird-agent
+  template:
+    metadata:
+      labels:
+        app: routebird-agent
+    spec:
+      hostNetwork: true
+      containers:
+        - name: routebird-agent
+          image: yagodev123/routebird-agent:latest # skaffold placeholder
+          args:
+            - "--config"
+            - "/etc/routebird/config.json"
+          ports:
+            - containerPort: 179
+              name: bgp
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/routebird
+              readOnly: true
+          imagePullPolicy: IfNotPresent
+      volumes:
+        - name: config
+          configMap:
+            name: routebird-config
