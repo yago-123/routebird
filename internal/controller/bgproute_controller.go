@@ -41,6 +41,13 @@ import (
 const ()
 
 // BGPRouteReconciler reconciles a BGPRoute object
+
+// Permissions for managing DaemonSets
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;create;update;list;watch
+
+// Permissions for managing ConfigMaps
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;create;list;watch
+
 type BGPRouteReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -174,7 +181,7 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMapHash string) appsv1.DaemonSet {
 	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
 
-	image := fmt.Sprintf("yagodev123/routebird-agent:%s", route.Spec.Agent.Version)
+	image := fmt.Sprintf("%s:%s", route.Spec.Agent.Image, route.Spec.Agent.Version)
 
 	return appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{

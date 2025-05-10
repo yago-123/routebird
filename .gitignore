@@ -5,7 +5,7 @@
 *.so
 *.dylib
 bin/*
-Dockerfile.operator.cross
+Dockerfile.controller.cross
 Dockerfile.agent.cross
 
 # Test binary, built with `go test -c`

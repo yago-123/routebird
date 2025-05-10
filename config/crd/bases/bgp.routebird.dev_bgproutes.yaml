@@ -42,6 +42,10 @@ spec:
               agent:
                 description: Agent details for the route advertisement DaemonSet specification
                 properties:
+                  image:
+                    default: yagodev123/routebird-agent
+                    description: Image of the BGP agent that will announce routes
+                    type: string
                   imagePullPolicy:
                     default: IfNotPresent
                     description: PullPolicy describes a policy for if/when to pull
@@ -52,6 +56,7 @@ spec:
                     description: Version of the BGP agent that will announce routes
                     type: string
                 required:
+                - image
                 - imagePullPolicy
                 - version
                 type: object

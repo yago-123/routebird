@@ -58,6 +58,10 @@ type BGPPeer struct {
 }
 
 type Agent struct {
+	// Image of the BGP agent that will announce routes
+	// +kubebuilder:default="yagodev123/routebird-agent"
+	Image string `json:"image"`
+
 	// Version of the BGP agent that will announce routes
 	// +kubebuilder:default="latest"
 	Version string `json:"version"`

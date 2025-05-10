@@ -5,6 +5,25 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
   - bgp.routebird.dev
   resources:
   - bgproutes

@@ -17,5 +17,6 @@ spec:
     - address: 192.0.2.1
       asn: 64513
   agent:
-    version: "latest"
+    image: "yagodev123/routebird-agent"
+    version: dev
     imagePullPolicy: IfNotPresent

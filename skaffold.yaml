@@ -2,29 +2,32 @@ apiVersion: skaffold/v4beta13
 kind: Config
 metadata:
   name: routebird
+
 build:
-  local:
-    push: false
   artifacts:
     - image: yagodev123/routebird-agent
       docker:
         dockerfile: Dockerfile.agent
+    - image: yagodev123/routebird-controller
+      docker:
+        dockerfile: Dockerfile.controller
+  local:
+    push: false  # Avoid pushing to remote registries during local development
+  tagPolicy:
+    sha256: {}  # This will tag images using their SHA (ensures unique tags for each build)
 
 manifests:
   kustomize:
     paths:
-      - config/samples
+      - ./config/default/
+
 deploy:
   kubectl: {}
 
 profiles:
   - name: dev
-    deploy:
-      kubectl: {}
-    manifests:
-      kustomize:
-        paths:
-          - config/samples
+    activation:
+      - command: dev
     build:
-      artifacts:
-        - image: yagodev123/routebird-agent
+      local:
+        push: false
