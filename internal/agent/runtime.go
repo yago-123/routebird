@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+
 	"github.com/yago-123/routebird/internal/agent/bgp"
 	"github.com/yago-123/routebird/internal/agent/k8s"
 	cfg "github.com/yago-123/routebird/internal/common"
@@ -12,13 +13,13 @@ import (
 
 type Runtime struct {
 	bgpManager bgp.Manager
-	watchers   []k8s.ResourceWatcher
+	watchers   []k8s.Watcher
 }
 
 func NewRuntime(cfg cfg.Config, client kubernetes.Interface) *Runtime {
 	bgpManager := bgp.NewManager(cfg.Peers, client)
 
-	watchers := []k8s.ResourceWatcher{
+	watchers := []k8s.Watcher{
 		// k8s.NewNodeWatcher(client, bgpManager),
 		// k8s.NewCRDWatcher(client, bgpManager),
 	}
@@ -27,9 +28,9 @@ func NewRuntime(cfg cfg.Config, client kubernetes.Interface) *Runtime {
 }
 
 func (r *Runtime) Start(ctx context.Context) error {
-	for _, w := range r.watchers {
-		go w.Start(ctx)
-	}
+	// for _, w := range r.watchers {
+	// 		go w.Start(ctx)
+	// }
 	<-ctx.Done()
 	return nil
 }

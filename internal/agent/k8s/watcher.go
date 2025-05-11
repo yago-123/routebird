@@ -3,12 +3,13 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
-	"time"
 )
 
 // todo: watches for Node, Pod, Service, or CR changes
@@ -58,15 +59,15 @@ func (w *watcher) Watch(ctx context.Context) error {
 
 	// Service Informer
 	svcInformer := factory.Core().V1().Services().Informer()
-	svcInformer.AddEventHandler(w.newHandler())
+	_, _ = svcInformer.AddEventHandler(w.newHandler())
 
 	// Endpoints Informer
 	epInformer := factory.Core().V1().Endpoints().Informer()
-	epInformer.AddEventHandler(w.newHandler())
+	_, _ = epInformer.AddEventHandler(w.newHandler())
 
 	// EndpointSlices Informer
 	epsInformer := factory.Discovery().V1().EndpointSlices().Informer()
-	epsInformer.AddEventHandler(w.newHandler())
+	_, _ = epsInformer.AddEventHandler(w.newHandler())
 
 	factory.Start(ctx.Done())
 

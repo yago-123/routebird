@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+
 	bgpv1alphav1 "github.com/yago-123/routebird/api/v1alphav1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,7 +17,7 @@ const (
 	ServiceAccountKind = "ServiceAccount"
 )
 
-func buildClusterRole(route bgpv1alphav1.BGPRoute, roleName string) rbacv1.ClusterRole {
+func buildClusterRole(_ bgpv1alphav1.BGPRoute, roleName string) rbacv1.ClusterRole {
 	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: roleName,

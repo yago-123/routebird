@@ -6,8 +6,8 @@ type EventType string
 
 const (
 	EventAdd    EventType = "Add"
-	EventUpdate           = "Update"
-	EventDelete           = "Delete"
+	EventUpdate EventType = "Update"
+	EventDelete EventType = "Delete"
 )
 
 type Event struct {

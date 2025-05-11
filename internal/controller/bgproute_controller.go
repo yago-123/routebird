@@ -21,9 +21,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/yago-123/routebird/internal/common"
 	"reflect"
 	"sort"
+
+	"github.com/yago-123/routebird/internal/common"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -36,8 +37,6 @@ import (
 
 	bgpv1alphav1 "github.com/yago-123/routebird/api/v1alphav1"
 )
-
-const ()
 
 // BGPRouteReconciler reconciles a BGPRoute object
 
@@ -156,6 +155,8 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// todo(): create RBAC roles and bindings for the ServiceAccount
+	_ = buildClusterRole(route, "routebird-agent")
+	_ = buildClusterRoleBinding(route, "routebird-agent", sAccountName)
 
 	// Calculate new config hash after ConfigMap update
 	configMapHash := calculateConfigMapHash(cfgMap.Data)

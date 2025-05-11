@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"log"
+	"log/slog"
+	"os"
+
 	"github.com/go-logr/logr"
 	"github.com/yago-123/routebird/internal/agent/k8s"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"log"
-	"log/slog"
-	"os"
 )
 
 func main() {

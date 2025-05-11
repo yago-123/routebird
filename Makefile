@@ -82,6 +82,10 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
 
+.PHONY: imports
+imports:
+	@find . -name "*.go" | xargs goimports -w
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
