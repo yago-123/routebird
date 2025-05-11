@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: routebird-agent-sa
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: routebird-agent-sa
+subjects:
+  - kind: ServiceAccount
+    name: routebird-agent-sa
+    namespace: default
