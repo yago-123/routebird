@@ -3,10 +3,10 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	rbacv1 "k8s.io/api/rbac/v1"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	bgpv1alphav1 "github.com/yago-123/routebird/api/v1alphav1"
@@ -20,10 +20,50 @@ const (
 	ServiceAccountKind = "ServiceAccount"
 )
 
-func buildAgentClusterRole(_ bgpv1alphav1.BGPRoute, roleName string) rbacv1.ClusterRole {
-	return rbacv1.ClusterRole{
+func buildAgentConfigMap(routeCR bgpv1alphav1.BGPRoute) (*corev1.ConfigMap, error) {
+	cfg := common.Config{
+		ServiceSelector: routeCR.Spec.ServiceSelector,
+		LocalASN:        routeCR.Spec.LocalASN,
+		BGPLocalPort:    routeCR.Spec.BGPLocalPort,
+		Peers:           routeCR.Spec.Peers,
+	}
+
+	cfgJSON, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("Failed to marshal config to JSON: %w", err)
+	}
+
+	cfgMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: roleName,
+			Name:      fmt.Sprintf("%s-config", routeCR.Name),
+			Namespace: routeCR.Namespace,
+		},
+		Data: map[string]string{
+			"config.json": string(cfgJSON),
+		},
+	}
+
+	return cfgMap, nil
+}
+
+func buildAgentServiceAccount(routeCR bgpv1alphav1.BGPRoute) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      routeCR.Spec.Agent.ServiceAccountName,
+			Namespace: routeCR.Namespace,
+			// todo(): unify labels with DaemonSet
+			Labels: map[string]string{
+				"app":   "routebird-agent",
+				"route": routeCR.Name,
+			},
+		},
+	}
+}
+
+func buildAgentClusterRole(routeCR bgpv1alphav1.BGPRoute, serviceAccount *corev1.ServiceAccount) (*rbacv1.ClusterRole, *rbacv1.ClusterRoleBinding) {
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: routeCR.Spec.Agent.ServiceAccountName,
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -38,77 +78,40 @@ func buildAgentClusterRole(_ bgpv1alphav1.BGPRoute, roleName string) rbacv1.Clus
 			},
 		},
 	}
-}
 
-func buildAgentClusterRoleBinding(route bgpv1alphav1.BGPRoute, roleName, saName string) rbacv1.ClusterRoleBinding {
-	return rbacv1.ClusterRoleBinding{
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: roleName + "-binding",
+			Name: routeCR.Spec.Agent.ServiceAccountName,
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: RBACAPIGroup,
 			Kind:     ClusterRoleKind,
-			Name:     roleName,
+			Name:     routeCR.Spec.Agent.ServiceAccountName,
 		},
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      ServiceAccountKind,
-				Name:      saName,
-				Namespace: route.Namespace,
+				Name:      serviceAccount.Name,
+				Namespace: routeCR.Namespace,
 			},
 		},
 	}
+
+	return clusterRole, clusterRoleBinding
 }
 
-func buildAgentConfigMap(route bgpv1alphav1.BGPRoute) (*corev1.ConfigMap, error) {
-	cfg := common.Config{
-		ServiceSelector: route.Spec.ServiceSelector,
-		LocalASN:        route.Spec.LocalASN,
-		BGPLocalPort:    route.Spec.BGPLocalPort,
-		Peers:           route.Spec.Peers,
-	}
-
-	cfgJSON, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("Failed to marshal config to JSON: %w", err)
-	}
-
-	cfgMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      route.Name + "-config",
-			Namespace: route.Namespace,
-		},
-		Data: map[string]string{
-			"config.json": string(cfgJSON),
-		},
-	}
-
-	return cfgMap, nil
-}
-func buildAgentServiceAccount(route bgpv1alphav1.BGPRoute, saName string) corev1.ServiceAccount {
-	return corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: route.Namespace,
-			// todo(): unify labels with DaemonSet
-			Labels: map[string]string{
-				"app":   "routebird-agent",
-				"route": route.Name,
-			},
-		},
-	}
-}
-
-func buildAgentDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMapHash string) appsv1.DaemonSet {
+func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.ConfigMap, serviceAccount *corev1.ServiceAccount) *appsv1.DaemonSet {
 	// todo(): unify labels with ServiceAccount
-	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
+	labels := map[string]string{"app": "routebird-agent", "route": routeCR.Name}
 
-	image := fmt.Sprintf("%s:%s", route.Spec.Agent.Image, route.Spec.Agent.Version)
+	image := fmt.Sprintf("%s:%s", routeCR.Spec.Agent.Image, routeCR.Spec.Agent.Version)
 
-	return appsv1.DaemonSet{
+	configMapHash := calculateCMapHash(configMap.Data)
+
+	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        "routebird-agent-" + route.Name,
-			Namespace:   route.Namespace,
+			Name:        fmt.Sprintf("routebird-agent-%s", routeCR.Name),
+			Namespace:   routeCR.Namespace,
 			Labels:      labels,
 			Annotations: map[string]string{"configMapHash": configMapHash},
 		},
@@ -123,7 +126,7 @@ func buildAgentDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, conf
 				Spec: corev1.PodSpec{
 					// HostNetwork must be true in order to bind to the host's network
 					HostNetwork:        true,
-					ServiceAccountName: route.Spec.Agent.ServiceAccountName,
+					ServiceAccountName: serviceAccount.Name,
 					Containers: []corev1.Container{
 						{
 							Name:  "routebird-agent",
@@ -138,9 +141,9 @@ func buildAgentDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, conf
 								},
 							},
 							Ports: []corev1.ContainerPort{
-								{ContainerPort: route.Spec.BGPLocalPort, Name: "bgp", Protocol: corev1.ProtocolTCP},
+								{ContainerPort: routeCR.Spec.BGPLocalPort, Name: "bgp", Protocol: corev1.ProtocolTCP},
 							},
-							ImagePullPolicy: route.Spec.Agent.ImagePullPolicy,
+							ImagePullPolicy: routeCR.Spec.Agent.ImagePullPolicy,
 						},
 					},
 					// Mount the ConfigMap as a volume so that it can be accessed by the agent
@@ -150,15 +153,15 @@ func buildAgentDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, conf
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: configMapName,
+										Name: configMap.Name,
 									},
 								},
 							},
 						},
 					},
 					// Filter in which nodes the agent will run
-					NodeSelector: route.Spec.NodeSelector,
-					Tolerations:  route.Spec.Tolerations,
+					NodeSelector: routeCR.Spec.NodeSelector,
+					Tolerations:  routeCR.Spec.Tolerations,
 				},
 			},
 		},

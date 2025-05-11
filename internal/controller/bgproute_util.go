@@ -6,8 +6,8 @@ import (
 	"sort"
 )
 
-// calculateConfigMapHash generates a deterministic hash based on the ConfigMap's data content.
-func calculateConfigMapHash(data map[string]string) string {
+// calculateCMapHash generates a deterministic hash based on the ConfigMap's data content.
+func calculateCMapHash(data map[string]string) string {
 	keys := make([]string, 0, len(data))
 	for k := range data {
 		keys = append(keys, k)

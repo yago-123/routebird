@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"reflect"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -24,9 +25,7 @@ func (r *BGPRouteReconciler) reconcileAgentConfigMap(ctx context.Context, desire
 		}
 		logger.Info("Created ConfigMap", "ConfigMap.Name", desiredCMap.Name)
 		return nil
-	}
-
-	if err != nil {
+	} else if err != nil {
 		logger.Error(err, "Failed to get ConfigMap", "ConfigMap.Name", desiredCMap.Name)
 		return err
 	}
@@ -43,13 +42,13 @@ func (r *BGPRouteReconciler) reconcileAgentConfigMap(ctx context.Context, desire
 	return nil
 }
 
-func (r *BGPRouteReconciler) reconcileAgentServiceAccount(ctx context.Context, desiredSAccount corev1.ServiceAccount) error {
+func (r *BGPRouteReconciler) reconcileAgentServiceAccount(ctx context.Context, desiredSAccount *corev1.ServiceAccount) error {
 	logger := log.FromContext(ctx)
 
-	var existingSA corev1.ServiceAccount
-	err := r.Get(ctx, client.ObjectKey{Name: desiredSAccount.Name, Namespace: desiredSAccount.Namespace}, &existingSA)
+	var currentSAccount corev1.ServiceAccount
+	err := r.Get(ctx, client.ObjectKey{Name: desiredSAccount.Name, Namespace: desiredSAccount.Namespace}, &currentSAccount)
 	if apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, &desiredSAccount); errCreate != nil {
+		if errCreate := r.Create(ctx, desiredSAccount); errCreate != nil {
 			logger.Error(errCreate, "Failed to create ServiceAccount", "ServiceAccount.Name", desiredSAccount.Name)
 			return errCreate
 		}
@@ -64,13 +63,45 @@ func (r *BGPRouteReconciler) reconcileAgentServiceAccount(ctx context.Context, d
 	return nil
 }
 
-func (r *BGPRouteReconciler) reconcileAgentDaemonSet(ctx context.Context, desiredDSet appsv1.DaemonSet) error {
+func (r *BGPRouteReconciler) reconcileAgentClusterRoles(ctx context.Context, desiredCRole *rbacv1.ClusterRole, desiredCRBinding *rbacv1.ClusterRoleBinding) error {
 	logger := log.FromContext(ctx)
 
-	var existingDS appsv1.DaemonSet
-	err := r.Get(ctx, client.ObjectKey{Name: desiredDSet.Name, Namespace: desiredDSet.Namespace}, &existingDS)
+	var currentCRole rbacv1.ClusterRole
+	err := r.Get(ctx, client.ObjectKey{Name: desiredCRole.Name}, &currentCRole)
 	if apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, &desiredDSet); errCreate != nil {
+		if errCreate := r.Create(ctx, desiredCRole); errCreate != nil {
+			logger.Error(errCreate, "Failed to create ClusterRole", "ClusterRole.Name", desiredCRole.Name)
+			return errCreate
+		}
+		logger.Info("Created ClusterRole", "ClusterRole.Name", desiredCRole.Name)
+	} else if err != nil {
+		logger.Error(err, "Failed to get ClusterRole", "ClusterRole.Name", desiredCRole.Name)
+		return err
+	}
+
+	var currentCRBinding rbacv1.ClusterRoleBinding
+	err = r.Get(ctx, client.ObjectKey{Name: desiredCRBinding.Name}, &currentCRBinding)
+	if apierrors.IsNotFound(err) {
+		if errCreate := r.Create(ctx, desiredCRBinding); errCreate != nil {
+			logger.Error(errCreate, "Failed to create ClusterRoleBinding", "ClusterRole.Name", desiredCRBinding.Name)
+			return errCreate
+		}
+		logger.Info("Created ClusterRoleBinding", "ClusterRole.Name", desiredCRBinding.Name)
+	} else if err != nil {
+		logger.Error(err, "Failed to get ClusterRoleBinding", "ClusterRole.Name", desiredCRBinding.Name)
+		return err
+	}
+
+	return nil
+}
+
+func (r *BGPRouteReconciler) reconcileAgentDaemonSet(ctx context.Context, desiredDSet *appsv1.DaemonSet) error {
+	logger := log.FromContext(ctx)
+
+	var currentDSet appsv1.DaemonSet
+	err := r.Get(ctx, client.ObjectKey{Name: desiredDSet.Name, Namespace: desiredDSet.Namespace}, &currentDSet)
+	if apierrors.IsNotFound(err) {
+		if errCreate := r.Create(ctx, desiredDSet); errCreate != nil {
 			logger.Error(errCreate, "Failed to create DaemonSet", "DaemonSet.Name", desiredDSet.Name)
 			return errCreate
 		}

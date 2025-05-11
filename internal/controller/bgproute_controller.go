@@ -49,31 +49,24 @@ type BGPRouteReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the BGPRoute object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var route bgpv1alphav1.BGPRoute
-	if err := r.Get(ctx, req.NamespacedName, &route); err != nil {
+	var routeCR bgpv1alphav1.BGPRoute
+	if err := r.Get(ctx, req.NamespacedName, &routeCR); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	/*
 		Create, set up owner reference and create config map for routebird-agent
 	*/
-	desiredCMap, err := buildAgentConfigMap(route)
+	desiredCMap, err := buildAgentConfigMap(routeCR)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("Error generating ConfigMap object: %w", err)
 	}
-	if err = ctrl.SetControllerReference(&route, desiredCMap, r.Scheme); err != nil {
+	if err = ctrl.SetControllerReference(&routeCR, desiredCMap, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for ConfigMap")
-		return ctrl.Result{}, fmt.Errorf("Failed to set owner reference for ConfigMap: %w", err)
+		return ctrl.Result{}, err
 	}
 	if err = r.reconcileAgentConfigMap(ctx, desiredCMap); err != nil {
 		return ctrl.Result{}, err
@@ -82,24 +75,33 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	/*
 		Create, set up owner reference and create service account for routebird-agent
 	*/
-	saName := route.Spec.Agent.ServiceAccountName
-	desiredSAccount := buildAgentServiceAccount(route, saName)
-	if err = ctrl.SetControllerReference(&route, &desiredSAccount, r.Scheme); err != nil {
+	desiredSAccount := buildAgentServiceAccount(routeCR)
+	if err = ctrl.SetControllerReference(&routeCR, desiredSAccount, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for ServiceAccount", "ServiceAccount.Name", desiredSAccount.Name)
-		return ctrl.Result{}, fmt.Errorf("Failed to set owner reference for ServiceAccount: %w", err)
+		return ctrl.Result{}, err
 	}
 	if err = r.reconcileAgentServiceAccount(ctx, desiredSAccount); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	/*
+		Create and create cluster roles and bindings for routebird-agent
+	*/
+	desiredCRole, desiredCRBinding := buildAgentClusterRole(routeCR, desiredSAccount)
+
+	// ClusterRoles and ClusterRoleBindings cannot have a namespaced resource (like a CR) as their owner given that
+	// they are cluster-scoped resources
+	if err = r.reconcileAgentClusterRoles(ctx, desiredCRole, desiredCRBinding); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	/*
 		Create, set up owner reference and create daemon set for routebird-agent
 	*/
-	cfgMapHash := calculateConfigMapHash(desiredCMap.Data)
-	desiredDSet := buildAgentDaemonSet(route, desiredCMap.Name, cfgMapHash)
-	if err = ctrl.SetControllerReference(&route, &desiredDSet, r.Scheme); err != nil {
+	desiredDSet := buildAgentDaemonSet(routeCR, desiredCMap, desiredSAccount)
+	if err = ctrl.SetControllerReference(&routeCR, desiredDSet, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for DaemonSet", "DaemonSet.Name", desiredDSet.Name)
-		return ctrl.Result{}, fmt.Errorf("Failed to set owner reference for DaemonSet: %w", err)
+		return ctrl.Result{}, err
 	}
 	if err = r.reconcileAgentDaemonSet(ctx, desiredDSet); err != nil {
 		return ctrl.Result{}, err

@@ -18,5 +18,5 @@ spec:
       asn: 64513
   agent:
     image: "yagodev123/routebird-agent"
-    version: dev
+    version: latest
     imagePullPolicy: IfNotPresent
