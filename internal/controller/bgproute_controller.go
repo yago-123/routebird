@@ -134,6 +134,30 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		logger.Info("Updated ConfigMap", "ConfigMap.Name", cfgMap.Name)
 	}
 
+	// Build the ServiceAccount object for the DaemonSet
+	sAccountName := route.Spec.Agent.ServiceAccountName
+	newSAAgent := buildServiceAccount(route, sAccountName)
+	if err = ctrl.SetControllerReference(&route, &newSAAgent, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference for ServiceAccount", "ServiceAccount.Name", newSAAgent.Name)
+		return ctrl.Result{}, err
+	}
+
+	// Create or update the ServiceAccount
+	var sa corev1.ServiceAccount
+	err = r.Get(ctx, client.ObjectKey{Name: sAccountName, Namespace: route.Namespace}, &sa)
+	if apierrors.IsNotFound(err) {
+		if err = r.Create(ctx, &newSAAgent); err != nil {
+			logger.Error(err, "Failed to create ServiceAccount", "ServiceAccount.Name", sAccountName)
+			return ctrl.Result{}, err
+		}
+		logger.Info("Created ServiceAccount", "ServiceAccount.Name", sAccountName)
+	} else if err != nil {
+		logger.Error(err, "Failed to get ServiceAccount", "ServiceAccount.Name", sAccountName)
+		return ctrl.Result{}, err
+	}
+
+	// todo(): create RBAC roles and bindings for the ServiceAccount
+
 	// Calculate new config hash after ConfigMap update
 	configMapHash := calculateConfigMapHash(cfgMap.Data)
 
@@ -178,7 +202,22 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+func buildServiceAccount(route bgpv1alphav1.BGPRoute, saName string) corev1.ServiceAccount {
+	return corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      saName,
+			Namespace: route.Namespace,
+			// todo(): unify labels with DaemonSet
+			Labels: map[string]string{
+				"app":   "routebird-agent",
+				"route": route.Name,
+			},
+		},
+	}
+}
+
 func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMapHash string) appsv1.DaemonSet {
+	// todo(): unify labels with ServiceAccount
 	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
 
 	image := fmt.Sprintf("%s:%s", route.Spec.Agent.Image, route.Spec.Agent.Version)
@@ -200,7 +239,8 @@ func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMap
 				},
 				Spec: corev1.PodSpec{
 					// HostNetwork must be true in order to bind to the host's network
-					HostNetwork: true,
+					HostNetwork:        true,
+					ServiceAccountName: route.Spec.Agent.ServiceAccountName,
 					Containers: []corev1.Container{
 						{
 							Name:  "routebird-agent",

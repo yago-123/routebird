@@ -68,6 +68,9 @@ type Agent struct {
 
 	// +kubebuilder:default="IfNotPresent"
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy"`
+
+	// +kubebuilder:default="routebird-agent-sa"
+	ServiceAccountName string `json:"serviceAccountName"`
 }
 
 // BGPRouteStatus defines the observed state of BGPRoute.

@@ -51,6 +51,9 @@ spec:
                     description: PullPolicy describes a policy for if/when to pull
                       a container image
                     type: string
+                  serviceAccountName:
+                    default: routebird-agent-sa
+                    type: string
                   version:
                     default: latest
                     description: Version of the BGP agent that will announce routes
@@ -58,6 +61,7 @@ spec:
                 required:
                 - image
                 - imagePullPolicy
+                - serviceAccountName
                 - version
                 type: object
               bgpLocalPort:
