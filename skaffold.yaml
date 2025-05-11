@@ -9,7 +9,7 @@ profiles:
       artifacts:
         - image: yagodev123/routebird-agent
           docker:
-            dockerfile: Dockerfile.agent
+            dockerfile: build/Dockerfile.agent
     manifests:
       kustomize:
         paths:
