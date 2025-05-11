@@ -18,18 +18,10 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"reflect"
-	"sort"
-
-	"github.com/yago-123/routebird/internal/common"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,101 +60,48 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	logger := log.FromContext(ctx)
 
 	var route bgpv1alphav1.BGPRoute
-	// Retrieve the BGPRoute instance
 	if err := r.Get(ctx, req.NamespacedName, &route); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Generate the configuration for the BGP agent
-	cfgMap, err := buildAgentConfigMap(route)
-	if err = ctrl.SetControllerReference(&route, cfgMap, r.Scheme); err != nil {
+	/*
+		Create, set up owner reference and create config map for routebird-agent
+	*/
+	desiredCMap, err := buildAgentConfigMap(route)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("Error generating ConfigMap object: %w", err)
+	}
+	if err = ctrl.SetControllerReference(&route, desiredCMap, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for ConfigMap")
+		return ctrl.Result{}, fmt.Errorf("Failed to set owner reference for ConfigMap: %w", err)
+	}
+	if err = r.reconcileAgentConfigMap(ctx, desiredCMap); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	var existingCM corev1.ConfigMap
-	// Handle ConfigMap creation or update
-	err = r.Get(ctx, client.ObjectKeyFromObject(cfgMap), &existingCM)
-	// If not found, create it
-	if apierrors.IsNotFound(err) {
-		errCreate := r.Create(ctx, cfgMap)
-		if err != nil {
-			logger.Error(errCreate, "Failed to create ConfigMap")
-			return ctrl.Result{}, errCreate
-		}
-
-		logger.Info("Created ConfigMap", "ConfigMap.Name", cfgMap.Name)
-	} else if err != nil && !apierrors.IsNotFound(err) {
-		// If contains error and is not NotFound, return error
-		logger.Error(err, "Failed to get ConfigMap")
+	/*
+		Create, set up owner reference and create service account for routebird-agent
+	*/
+	saName := route.Spec.Agent.ServiceAccountName
+	desiredSAccount := buildAgentServiceAccount(route, saName)
+	if err = ctrl.SetControllerReference(&route, &desiredSAccount, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference for ServiceAccount", "ServiceAccount.Name", desiredSAccount.Name)
+		return ctrl.Result{}, fmt.Errorf("Failed to set owner reference for ServiceAccount: %w", err)
+	}
+	if err = r.reconcileAgentServiceAccount(ctx, desiredSAccount); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// If already existed and it is not equal to the new one, update it
-	if err == nil && !reflect.DeepEqual(existingCM.Data, cfgMap.Data) {
-		existingCM.Data = cfgMap.Data
-		errUpdate := r.Update(ctx, &existingCM)
-		if errUpdate != nil {
-			logger.Error(errUpdate, "Failed to update ConfigMap")
-			return ctrl.Result{}, errUpdate
-		}
-		logger.Info("Updated ConfigMap", "ConfigMap.Name", cfgMap.Name)
+	/*
+		Create, set up owner reference and create daemon set for routebird-agent
+	*/
+	cfgMapHash := calculateConfigMapHash(desiredCMap.Data)
+	desiredDSet := buildAgentDaemonSet(route, desiredCMap.Name, cfgMapHash)
+	if err = ctrl.SetControllerReference(&route, &desiredDSet, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference for DaemonSet", "DaemonSet.Name", desiredDSet.Name)
+		return ctrl.Result{}, fmt.Errorf("Failed to set owner reference for DaemonSet: %w", err)
 	}
-
-	// Build the ServiceAccount object for the DaemonSet
-	sAccountName := route.Spec.Agent.ServiceAccountName
-	newSAAgent := buildAgentServiceAccount(route, sAccountName)
-	if err = ctrl.SetControllerReference(&route, &newSAAgent, r.Scheme); err != nil {
-		logger.Error(err, "Failed to set owner reference for ServiceAccount", "ServiceAccount.Name", newSAAgent.Name)
-		return ctrl.Result{}, err
-	}
-
-	// Create or update the ServiceAccount
-	var sa corev1.ServiceAccount
-	err = r.Get(ctx, client.ObjectKey{Name: sAccountName, Namespace: route.Namespace}, &sa)
-	if apierrors.IsNotFound(err) {
-		if err = r.Create(ctx, &newSAAgent); err != nil {
-			logger.Error(err, "Failed to create ServiceAccount", "ServiceAccount.Name", sAccountName)
-			return ctrl.Result{}, err
-		}
-		logger.Info("Created ServiceAccount", "ServiceAccount.Name", sAccountName)
-	} else if err != nil {
-		logger.Error(err, "Failed to get ServiceAccount", "ServiceAccount.Name", sAccountName)
-		return ctrl.Result{}, err
-	}
-
-	// todo(): create RBAC roles and bindings for the ServiceAccount
-	_ = buildAgentClusterRole(route, "routebird-agent")
-	_ = buildAgentClusterRoleBinding(route, "routebird-agent", sAccountName)
-
-	// Calculate new config hash after ConfigMap update
-	configMapHash := calculateConfigMapHash(cfgMap.Data)
-
-	// Define the desired DaemonSet
-	newDSAgent := buildAgentDaemonSet(route, cfgMap.Name, configMapHash)
-
-	// Set owner reference to the DaemonSet
-	if err = ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
-		logger.Error(err, "Failed to set owner reference", "DaemonSet.Name", newDSAgent.Name)
-		return ctrl.Result{}, err
-	}
-
-	// Check if the DaemonSet already exists
-	var existingDSAgent appsv1.DaemonSet
-	err = r.Get(ctx, client.ObjectKey{Name: newDSAgent.Name, Namespace: newDSAgent.Namespace}, &existingDSAgent)
-	// If not found, create it
-	if err != nil && apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, &newDSAgent); errCreate != nil {
-			logger.Error(errCreate, "Failed to create DaemonSet", "DaemonSet.Name", newDSAgent.Name)
-			return ctrl.Result{}, errCreate
-		}
-
-		logger.Info("Created DaemonSet", "DaemonSet.name", newDSAgent.Name)
-	}
-
-	// If contains error and is not NotFound, return error
-	if err != nil && !apierrors.IsNotFound(err) {
-		logger.Error(err, "Failed to get DaemonSet", "DaemonSet.Name", newDSAgent.Name)
+	if err = r.reconcileAgentDaemonSet(ctx, desiredDSet); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -177,21 +116,4 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.DaemonSet{}).
 		Named("routebird").
 		Complete(r)
-}
-
-// calculateConfigMapHash generates a deterministic hash based on the ConfigMap's data content.
-func calculateConfigMapHash(data map[string]string) string {
-	keys := make([]string, 0, len(data))
-	for k := range data {
-		keys = append(keys, k)
-	}
-	// Ensure consistent ordering
-	sort.Strings(keys)
-
-	hasher := sha256.New()
-	for _, k := range keys {
-		hasher.Write([]byte(k))
-		hasher.Write([]byte(data[k]))
-	}
-	return hex.EncodeToString(hasher.Sum(nil))
 }
