@@ -21,7 +21,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"github.com/yago-123/routebird/internal/common"
 	"reflect"
 	"sort"
@@ -136,7 +135,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Build the ServiceAccount object for the DaemonSet
 	sAccountName := route.Spec.Agent.ServiceAccountName
-	newSAAgent := buildServiceAccount(route, sAccountName)
+	newSAAgent := buildRoutebirdAgentServiceAccount(route, sAccountName)
 	if err = ctrl.SetControllerReference(&route, &newSAAgent, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for ServiceAccount", "ServiceAccount.Name", newSAAgent.Name)
 		return ctrl.Result{}, err
@@ -162,7 +161,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	configMapHash := calculateConfigMapHash(cfgMap.Data)
 
 	// Define the desired DaemonSet
-	newDSAgent := buildDaemonSet(route, cfgMap.Name, configMapHash)
+	newDSAgent := buildRoutebirdAgentDaemonSet(route, cfgMap.Name, configMapHash)
 
 	// Set owner reference to the DaemonSet
 	if err = ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
@@ -200,86 +199,6 @@ func (r *BGPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.DaemonSet{}).
 		Named("routebird").
 		Complete(r)
-}
-
-func buildServiceAccount(route bgpv1alphav1.BGPRoute, saName string) corev1.ServiceAccount {
-	return corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: route.Namespace,
-			// todo(): unify labels with DaemonSet
-			Labels: map[string]string{
-				"app":   "routebird-agent",
-				"route": route.Name,
-			},
-		},
-	}
-}
-
-func buildDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMapHash string) appsv1.DaemonSet {
-	// todo(): unify labels with ServiceAccount
-	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
-
-	image := fmt.Sprintf("%s:%s", route.Spec.Agent.Image, route.Spec.Agent.Version)
-
-	return appsv1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        "routebird-agent-" + route.Name,
-			Namespace:   route.Namespace,
-			Labels:      labels,
-			Annotations: map[string]string{"configMapHash": configMapHash},
-		},
-		Spec: appsv1.DaemonSetSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					// HostNetwork must be true in order to bind to the host's network
-					HostNetwork:        true,
-					ServiceAccountName: route.Spec.Agent.ServiceAccountName,
-					Containers: []corev1.Container{
-						{
-							Name:  "routebird-agent",
-							Image: image,
-							// todo(): make constant?
-							Args: []string{"--config", "/etc/routebird/config.json"},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "config",
-									MountPath: "/etc/routebird",
-									ReadOnly:  true,
-								},
-							},
-							Ports: []corev1.ContainerPort{
-								{ContainerPort: route.Spec.BGPLocalPort, Name: "bgp", Protocol: corev1.ProtocolTCP},
-							},
-							ImagePullPolicy: route.Spec.Agent.ImagePullPolicy,
-						},
-					},
-					// Mount the ConfigMap as a volume so that it can be accessed by the agent
-					Volumes: []corev1.Volume{
-						{
-							Name: "config",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: configMapName,
-									},
-								},
-							},
-						},
-					},
-					// Filter in which nodes the agent will run
-					NodeSelector: route.Spec.NodeSelector,
-					Tolerations:  route.Spec.Tolerations,
-				},
-			},
-		},
-	}
 }
 
 // calculateConfigMapHash generates a deterministic hash based on the ConfigMap's data content.
