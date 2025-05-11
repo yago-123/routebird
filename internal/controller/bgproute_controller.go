@@ -57,10 +57,15 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	commonLabels := map[string]string{
+		"app":   "routebird-agent",
+		"route": routeCR.Name,
+	}
+
 	/*
 		Create, set up owner reference and create config map for routebird-agent
 	*/
-	desiredCMap, err := buildAgentConfigMap(routeCR)
+	desiredCMap, err := buildAgentConfigMap(routeCR, commonLabels)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("Error generating ConfigMap object: %w", err)
 	}
@@ -75,7 +80,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	/*
 		Create, set up owner reference and create service account for routebird-agent
 	*/
-	desiredSAccount := buildAgentServiceAccount(routeCR)
+	desiredSAccount := buildAgentServiceAccount(routeCR, commonLabels)
 	if err = ctrl.SetControllerReference(&routeCR, desiredSAccount, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for ServiceAccount", "ServiceAccount.Name", desiredSAccount.Name)
 		return ctrl.Result{}, err
@@ -87,7 +92,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	/*
 		Create and create cluster roles and bindings for routebird-agent
 	*/
-	desiredCRole, desiredCRBinding := buildAgentClusterRole(routeCR, desiredSAccount)
+	desiredCRole, desiredCRBinding := buildAgentClusterRole(routeCR, desiredSAccount, commonLabels)
 
 	// ClusterRoles and ClusterRoleBindings cannot have a namespaced resource (like a CR) as their owner given that
 	// they are cluster-scoped resources
@@ -98,7 +103,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	/*
 		Create, set up owner reference and create daemon set for routebird-agent
 	*/
-	desiredDSet := buildAgentDaemonSet(routeCR, desiredCMap, desiredSAccount)
+	desiredDSet := buildAgentDaemonSet(routeCR, desiredCMap, desiredSAccount, commonLabels)
 	if err = ctrl.SetControllerReference(&routeCR, desiredDSet, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for DaemonSet", "DaemonSet.Name", desiredDSet.Name)
 		return ctrl.Result{}, err

@@ -14,13 +14,18 @@ import (
 )
 
 const (
-	RBACAPIGroup = "rbac.authorization.k8s.io"
+	RBACAPIGroup      = "rbac.authorization.k8s.io"
+	DiscoveryAPIGroup = "discovery.k8s.io"
+
+	DaemonSetVolumeMountName = "config"
+
+	ConfigMapHashAnnotationKey = "configMapHash"
 
 	ClusterRoleKind    = "ClusterRole"
 	ServiceAccountKind = "ServiceAccount"
 )
 
-func buildAgentConfigMap(routeCR bgpv1alphav1.BGPRoute) (*corev1.ConfigMap, error) {
+func buildAgentConfigMap(routeCR bgpv1alphav1.BGPRoute, commonLabels map[string]string) (*corev1.ConfigMap, error) {
 	cfg := common.Config{
 		ServiceSelector: routeCR.Spec.ServiceSelector,
 		LocalASN:        routeCR.Spec.LocalASN,
@@ -35,35 +40,33 @@ func buildAgentConfigMap(routeCR bgpv1alphav1.BGPRoute) (*corev1.ConfigMap, erro
 
 	cfgMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-config", routeCR.Name),
+			Name:      fmt.Sprintf("routebird-agent-%s-config", routeCR.Name),
 			Namespace: routeCR.Namespace,
+			Labels:    commonLabels,
 		},
 		Data: map[string]string{
-			"config.json": string(cfgJSON),
+			common.ConfigMapFilename: string(cfgJSON),
 		},
 	}
 
 	return cfgMap, nil
 }
 
-func buildAgentServiceAccount(routeCR bgpv1alphav1.BGPRoute) *corev1.ServiceAccount {
+func buildAgentServiceAccount(routeCR bgpv1alphav1.BGPRoute, commonLabels map[string]string) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      routeCR.Spec.Agent.ServiceAccountName,
 			Namespace: routeCR.Namespace,
-			// todo(): unify labels with DaemonSet
-			Labels: map[string]string{
-				"app":   "routebird-agent",
-				"route": routeCR.Name,
-			},
+			Labels:    commonLabels,
 		},
 	}
 }
 
-func buildAgentClusterRole(routeCR bgpv1alphav1.BGPRoute, serviceAccount *corev1.ServiceAccount) (*rbacv1.ClusterRole, *rbacv1.ClusterRoleBinding) {
+func buildAgentClusterRole(routeCR bgpv1alphav1.BGPRoute, serviceAccount *corev1.ServiceAccount, commonLabels map[string]string) (*rbacv1.ClusterRole, *rbacv1.ClusterRoleBinding) {
 	clusterRole := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: routeCR.Spec.Agent.ServiceAccountName,
+			Name:   routeCR.Spec.Agent.ServiceAccountName,
+			Labels: commonLabels,
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -72,7 +75,7 @@ func buildAgentClusterRole(routeCR bgpv1alphav1.BGPRoute, serviceAccount *corev1
 				Verbs:     []string{"get", "list", "watch"},
 			},
 			{
-				APIGroups: []string{"discovery.k8s.io"},
+				APIGroups: []string{DiscoveryAPIGroup},
 				Resources: []string{"endpointslices"},
 				Verbs:     []string{"get", "list", "watch"},
 			},
@@ -81,7 +84,8 @@ func buildAgentClusterRole(routeCR bgpv1alphav1.BGPRoute, serviceAccount *corev1
 
 	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: routeCR.Spec.Agent.ServiceAccountName,
+			Name:   routeCR.Spec.Agent.ServiceAccountName,
+			Labels: commonLabels,
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: RBACAPIGroup,
@@ -100,28 +104,22 @@ func buildAgentClusterRole(routeCR bgpv1alphav1.BGPRoute, serviceAccount *corev1
 	return clusterRole, clusterRoleBinding
 }
 
-func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.ConfigMap, serviceAccount *corev1.ServiceAccount) *appsv1.DaemonSet {
-	// todo(): unify labels with ServiceAccount
-	labels := map[string]string{"app": "routebird-agent", "route": routeCR.Name}
-
+func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.ConfigMap, serviceAccount *corev1.ServiceAccount, commonLabels map[string]string) *appsv1.DaemonSet {
 	image := fmt.Sprintf("%s:%s", routeCR.Spec.Agent.Image, routeCR.Spec.Agent.Version)
-
 	configMapHash := calculateCMapHash(configMap.Data)
 
 	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        fmt.Sprintf("routebird-agent-%s", routeCR.Name),
 			Namespace:   routeCR.Namespace,
-			Labels:      labels,
-			Annotations: map[string]string{"configMapHash": configMapHash},
+			Labels:      commonLabels,
+			Annotations: map[string]string{ConfigMapHashAnnotationKey: configMapHash},
 		},
 		Spec: appsv1.DaemonSetSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
+			Selector: &routeCR.Spec.ServiceSelector,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: commonLabels,
 				},
 				Spec: corev1.PodSpec{
 					// HostNetwork must be true in order to bind to the host's network
@@ -131,12 +129,11 @@ func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.Config
 						{
 							Name:  "routebird-agent",
 							Image: image,
-							// todo(): make constant?
-							Args: []string{"--config", "/etc/routebird/config.json"},
+							Args:  []string{"--config", fmt.Sprintf("%s/%s", common.ConfigMapPath, common.ConfigMapFilename)},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      "config",
-									MountPath: "/etc/routebird",
+									Name:      DaemonSetVolumeMountName,
+									MountPath: common.ConfigMapPath,
 									ReadOnly:  true,
 								},
 							},
@@ -149,7 +146,7 @@ func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.Config
 					// Mount the ConfigMap as a volume so that it can be accessed by the agent
 					Volumes: []corev1.Volume{
 						{
-							Name: "config",
+							Name: DaemonSetVolumeMountName,
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
