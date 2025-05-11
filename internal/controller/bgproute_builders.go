@@ -1,13 +1,15 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
-
-	bgpv1alphav1 "github.com/yago-123/routebird/api/v1alphav1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	bgpv1alphav1 "github.com/yago-123/routebird/api/v1alphav1"
+	"github.com/yago-123/routebird/internal/common"
 )
 
 const (
@@ -17,7 +19,7 @@ const (
 	ServiceAccountKind = "ServiceAccount"
 )
 
-func buildClusterRole(_ bgpv1alphav1.BGPRoute, roleName string) rbacv1.ClusterRole {
+func buildAgentClusterRole(_ bgpv1alphav1.BGPRoute, roleName string) rbacv1.ClusterRole {
 	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: roleName,
@@ -37,7 +39,7 @@ func buildClusterRole(_ bgpv1alphav1.BGPRoute, roleName string) rbacv1.ClusterRo
 	}
 }
 
-func buildClusterRoleBinding(route bgpv1alphav1.BGPRoute, roleName, saName string) rbacv1.ClusterRoleBinding {
+func buildAgentClusterRoleBinding(route bgpv1alphav1.BGPRoute, roleName, saName string) rbacv1.ClusterRoleBinding {
 	return rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: roleName + "-binding",
@@ -57,7 +59,32 @@ func buildClusterRoleBinding(route bgpv1alphav1.BGPRoute, roleName, saName strin
 	}
 }
 
-func buildRoutebirdAgentServiceAccount(route bgpv1alphav1.BGPRoute, saName string) corev1.ServiceAccount {
+func buildAgentConfigMap(route bgpv1alphav1.BGPRoute) (*corev1.ConfigMap, error) {
+	cfg := common.Config{
+		ServiceSelector: route.Spec.ServiceSelector,
+		LocalASN:        route.Spec.LocalASN,
+		BGPLocalPort:    route.Spec.BGPLocalPort,
+		Peers:           route.Spec.Peers,
+	}
+
+	cfgJSON, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("Failed to marshal config to JSON: %w", err)
+	}
+
+	cfgMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      route.Name + "-config",
+			Namespace: route.Namespace,
+		},
+		Data: map[string]string{
+			"config.json": string(cfgJSON),
+		},
+	}
+
+	return cfgMap, nil
+}
+func buildAgentServiceAccount(route bgpv1alphav1.BGPRoute, saName string) corev1.ServiceAccount {
 	return corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      saName,
@@ -71,7 +98,7 @@ func buildRoutebirdAgentServiceAccount(route bgpv1alphav1.BGPRoute, saName strin
 	}
 }
 
-func buildRoutebirdAgentDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMapHash string) appsv1.DaemonSet {
+func buildAgentDaemonSet(route bgpv1alphav1.BGPRoute, configMapName string, configMapHash string) appsv1.DaemonSet {
 	// todo(): unify labels with ServiceAccount
 	labels := map[string]string{"app": "routebird-agent", "route": route.Name}
 

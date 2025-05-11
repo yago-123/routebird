@@ -74,30 +74,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Generate the configuration for the BGP agent
-	// todo(): move to a separate function
-	cfg := common.Config{
-		ServiceSelector: route.Spec.ServiceSelector,
-		LocalASN:        route.Spec.LocalASN,
-		BGPLocalPort:    route.Spec.BGPLocalPort,
-		Peers:           route.Spec.Peers,
-	}
-	cfgJSON, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		logger.Error(err, "Failed to marshal config to JSON")
-		return ctrl.Result{}, err
-	}
-
-	// Create or update the ConfigMap with the config
-	// todo(): make to a separate function
-	cfgMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      route.Name + "-config",
-			Namespace: route.Namespace,
-		},
-		Data: map[string]string{
-			"config.json": string(cfgJSON),
-		},
-	}
+	cfgMap, err := buildAgentConfigMap(route)
 	if err = ctrl.SetControllerReference(&route, cfgMap, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for ConfigMap")
 		return ctrl.Result{}, err
@@ -134,7 +111,7 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Build the ServiceAccount object for the DaemonSet
 	sAccountName := route.Spec.Agent.ServiceAccountName
-	newSAAgent := buildRoutebirdAgentServiceAccount(route, sAccountName)
+	newSAAgent := buildAgentServiceAccount(route, sAccountName)
 	if err = ctrl.SetControllerReference(&route, &newSAAgent, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for ServiceAccount", "ServiceAccount.Name", newSAAgent.Name)
 		return ctrl.Result{}, err
@@ -155,14 +132,14 @@ func (r *BGPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// todo(): create RBAC roles and bindings for the ServiceAccount
-	_ = buildClusterRole(route, "routebird-agent")
-	_ = buildClusterRoleBinding(route, "routebird-agent", sAccountName)
+	_ = buildAgentClusterRole(route, "routebird-agent")
+	_ = buildAgentClusterRoleBinding(route, "routebird-agent", sAccountName)
 
 	// Calculate new config hash after ConfigMap update
 	configMapHash := calculateConfigMapHash(cfgMap.Data)
 
 	// Define the desired DaemonSet
-	newDSAgent := buildRoutebirdAgentDaemonSet(route, cfgMap.Name, configMapHash)
+	newDSAgent := buildAgentDaemonSet(route, cfgMap.Name, configMapHash)
 
 	// Set owner reference to the DaemonSet
 	if err = ctrl.SetControllerReference(&route, &newDSAgent, r.Scheme); err != nil {
