@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"reflect"
 
@@ -14,81 +15,37 @@ import (
 )
 
 func (r *BGPRouteReconciler) reconcileAgentConfigMap(ctx context.Context, desiredCMap *corev1.ConfigMap) error {
-	logger := log.FromContext(ctx)
+	if err := r.genericReconciliationWithDiff(ctx, desiredCMap, func(existing, desired client.Object) bool {
+		existingCM := existing.(*corev1.ConfigMap)
+		desiredCM := desired.(*corev1.ConfigMap)
 
-	var existingCM corev1.ConfigMap
-	err := r.Get(ctx, client.ObjectKeyFromObject(desiredCMap), &existingCM)
-	if apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, desiredCMap); errCreate != nil {
-			logger.Error(errCreate, "Failed to create ConfigMap", "ConfigMap.Name", desiredCMap.Name)
-			return errCreate
+		// Compare the Data field to determine if an update is needed
+		if !reflect.DeepEqual(existingCM.Data, desiredCM.Data) {
+			existingCM.Data = desiredCM.Data
+			return true // Signal that an update should happen
 		}
-		logger.Info("Created ConfigMap", "ConfigMap.Name", desiredCMap.Name)
-		return nil
-	} else if err != nil {
-		logger.Error(err, "Failed to get ConfigMap", "ConfigMap.Name", desiredCMap.Name)
+		return false // No update needed
+	}); err != nil {
 		return err
-	}
-
-	if !reflect.DeepEqual(existingCM.Data, desiredCMap.Data) {
-		existingCM.Data = desiredCMap.Data
-		if errUpdate := r.Update(ctx, &existingCM); errUpdate != nil {
-			logger.Error(errUpdate, "Failed to update ConfigMap", "ConfigMap.Name", desiredCMap.Name)
-			return errUpdate
-		}
-		logger.Info("Updated ConfigMap", "ConfigMap.Name", desiredCMap.Name)
 	}
 
 	return nil
 }
 
 func (r *BGPRouteReconciler) reconcileAgentServiceAccount(ctx context.Context, desiredSAccount *corev1.ServiceAccount) error {
-	logger := log.FromContext(ctx)
-
-	var currentSAccount corev1.ServiceAccount
-	err := r.Get(ctx, client.ObjectKey{Name: desiredSAccount.Name, Namespace: desiredSAccount.Namespace}, &currentSAccount)
-	if apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, desiredSAccount); errCreate != nil {
-			logger.Error(errCreate, "Failed to create ServiceAccount", "ServiceAccount.Name", desiredSAccount.Name)
-			return errCreate
-		}
-		logger.Info("Created ServiceAccount", "ServiceAccount.Name", desiredSAccount.Name)
-	} else if err != nil {
-		logger.Error(err, "Failed to get ServiceAccount", "ServiceAccount.Name", desiredSAccount.Name)
+	if _, err := r.genericReconciliation(ctx, desiredSAccount); err != nil {
 		return err
 	}
-
-	// TODO: Optionally reconcile/update ServiceAccount fields here if needed.
 
 	return nil
 }
 
 func (r *BGPRouteReconciler) reconcileAgentClusterRoles(ctx context.Context, desiredCRole *rbacv1.ClusterRole, desiredCRBinding *rbacv1.ClusterRoleBinding) error {
-	logger := log.FromContext(ctx)
-
-	var currentCRole rbacv1.ClusterRole
-	err := r.Get(ctx, client.ObjectKey{Name: desiredCRole.Name}, &currentCRole)
-	if apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, desiredCRole); errCreate != nil {
-			logger.Error(errCreate, "Failed to create ClusterRole", "ClusterRole.Name", desiredCRole.Name)
-			return errCreate
-		}
-		logger.Info("Created ClusterRole", "ClusterRole.Name", desiredCRole.Name)
-	} else if err != nil {
-		logger.Error(err, "Failed to get ClusterRole", "ClusterRole.Name", desiredCRole.Name)
+	if _, err := r.genericReconciliation(ctx, desiredCRole); err != nil {
 		return err
 	}
 
-	var currentCRBinding rbacv1.ClusterRoleBinding
-	err = r.Get(ctx, client.ObjectKey{Name: desiredCRBinding.Name}, &currentCRBinding)
-	if apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, desiredCRBinding); errCreate != nil {
-			logger.Error(errCreate, "Failed to create ClusterRoleBinding", "ClusterRole.Name", desiredCRBinding.Name)
-			return errCreate
-		}
-		logger.Info("Created ClusterRoleBinding", "ClusterRole.Name", desiredCRBinding.Name)
-	} else if err != nil {
-		logger.Error(err, "Failed to get ClusterRoleBinding", "ClusterRole.Name", desiredCRBinding.Name)
+	if _, err := r.genericReconciliation(ctx, desiredCRBinding); err != nil {
 		return err
 	}
 
@@ -96,22 +53,73 @@ func (r *BGPRouteReconciler) reconcileAgentClusterRoles(ctx context.Context, des
 }
 
 func (r *BGPRouteReconciler) reconcileAgentDaemonSet(ctx context.Context, desiredDSet *appsv1.DaemonSet) error {
+	// todo() use genericReconciliationWithDiff so that DaemonSet is updated if spec changes
+	if _, err := r.genericReconciliation(ctx, desiredDSet); err != nil {
+		return err
+	}
+	return nil
+}
+
+// genericReconciliation is a generic reconciliation function that handles that ensures the desired resource state.
+func (r *BGPRouteReconciler) genericReconciliation(
+	ctx context.Context,
+	desired client.Object,
+) (client.Object, error) {
 	logger := log.FromContext(ctx)
 
-	var currentDSet appsv1.DaemonSet
-	err := r.Get(ctx, client.ObjectKey{Name: desiredDSet.Name, Namespace: desiredDSet.Namespace}, &currentDSet)
+	existing := desired.DeepCopyObject().(client.Object)
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	// Create the object if it doesn't exist
 	if apierrors.IsNotFound(err) {
-		if errCreate := r.Create(ctx, desiredDSet); errCreate != nil {
-			logger.Error(errCreate, "Failed to create DaemonSet", "DaemonSet.Name", desiredDSet.Name)
-			return errCreate
+		if errCreate := r.Create(ctx, desired); errCreate != nil {
+			logger.Error(errCreate, "Failed to create", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
+			return nil, errCreate
 		}
-		logger.Info("Created DaemonSet", "DaemonSet.Name", desiredDSet.Name)
+		logger.Info("Created", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
+
+		// Fetch the freshly created object to ensure correct state
+		if errFetch := r.Get(ctx, client.ObjectKeyFromObject(desired), existing); errFetch != nil {
+			logger.Error(errFetch, "Failed to fetch after creation", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
+			return nil, err
+		}
+
+		return existing, nil
 	} else if err != nil {
-		logger.Error(err, "Failed to get DaemonSet", "DaemonSet.Name", desiredDSet.Name)
+		logger.Error(err, "Failed to get", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
+		return nil, err
+	}
+
+	// If the object already exists, just return it without any changes
+
+	return existing, nil
+}
+
+// genericReconciliationWithDiff is a generic reconciliation function that ensures the desired resource state.
+// It updates the resource if a difference is detected by the provided diffCheck function.
+func (r *BGPRouteReconciler) genericReconciliationWithDiff(
+	ctx context.Context,
+	desired client.Object,
+	diffCheck func(existing, desired client.Object) bool,
+) error {
+	// Run the generic reconciliation to get the existing resource
+	existing, err := r.genericReconciliation(ctx, desired)
+	if err != nil || existing == nil {
 		return err
 	}
 
-	// TODO: Add update logic here to compare and update DaemonSet if specs differ.
+	if diffCheck == nil {
+		return fmt.Errorf("diffCheck function cannot be nil")
+	}
+
+	// Check if the existing resource differs from the desired state. In case of being true, update the resource
+	if diffCheck(existing, desired) {
+		logger := log.FromContext(ctx)
+		if errUpdate := r.Update(ctx, existing); errUpdate != nil {
+			logger.Error(errUpdate, "Failed to update", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
+			return errUpdate
+		}
+		logger.Info("Updated", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
+	}
 
 	return nil
 }
