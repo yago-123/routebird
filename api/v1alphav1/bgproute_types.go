@@ -23,7 +23,7 @@ import (
 
 // BGPRouteSpec defines the desired state of BGPRoute.
 type BGPRouteSpec struct {
-	// ServiceSelector match services by label
+	// ServiceSelector defines which labels should be contained by services in order to be monitored and advertised
 	// +kubebuilder:default:={"matchLabels":{"__never_match__":"true"}}
 	ServiceSelector metav1.LabelSelector `json:"serviceSelector"`
 

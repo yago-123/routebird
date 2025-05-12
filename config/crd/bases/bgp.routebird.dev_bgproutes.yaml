@@ -106,7 +106,8 @@ spec:
                 default:
                   matchLabels:
                     __never_match__: "true"
-                description: ServiceSelector match services by label
+                description: ServiceSelector defines which labels should be contained
+                  by services in order to be monitored and advertised
                 properties:
                   matchExpressions:
                     description: matchExpressions is a list of label selector requirements.

@@ -77,12 +77,6 @@ func (r *BGPRouteReconciler) genericReconciliation(
 		}
 		logger.Info("Created", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
 
-		// Fetch the freshly created object to ensure correct state
-		if errFetch := r.Get(ctx, client.ObjectKeyFromObject(desired), existing); errFetch != nil {
-			logger.Error(errFetch, "Failed to fetch after creation", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())
-			return nil, err
-		}
-
 		return existing, nil
 	} else if err != nil {
 		logger.Error(err, "Failed to get", "Kind", desired.GetObjectKind().GroupVersionKind().Kind, "Name", desired.GetName())

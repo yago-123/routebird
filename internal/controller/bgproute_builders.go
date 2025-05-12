@@ -116,7 +116,9 @@ func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.Config
 			Annotations: map[string]string{ConfigMapHashAnnotationKey: configMapHash},
 		},
 		Spec: appsv1.DaemonSetSpec{
-			Selector: &routeCR.Spec.ServiceSelector,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: commonLabels,
+			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: commonLabels,
