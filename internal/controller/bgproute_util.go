@@ -22,3 +22,18 @@ func calculateCMapHash(data map[string]string) string {
 	}
 	return hex.EncodeToString(hasher.Sum(nil))
 }
+
+// withExtraLabels returns a new map containing all entries from base,
+// plus all entries from extra (overriding base on key collisions).
+func withExtraLabels(base, extra map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(extra))
+	// copy base
+	for k, v := range base {
+		merged[k] = v
+	}
+	// copy/override from extra
+	for k, v := range extra {
+		merged[k] = v
+	}
+	return merged
+}

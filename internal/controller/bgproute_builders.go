@@ -108,20 +108,25 @@ func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.Config
 	image := fmt.Sprintf("%s:%s", routeCR.Spec.Agent.Image, routeCR.Spec.Agent.Version)
 	configMapHash := calculateCMapHash(configMap.Data)
 
+	dsName := fmt.Sprintf("routebird-agent-%s", routeCR.Name)
+	labels := withExtraLabels(commonLabels, map[string]string{
+		"daemonset": dsName,
+	})
+
 	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        fmt.Sprintf("routebird-agent-%s", routeCR.Name),
+			Name:        dsName,
 			Namespace:   routeCR.Namespace,
-			Labels:      commonLabels,
+			Labels:      labels,
 			Annotations: map[string]string{ConfigMapHashAnnotationKey: configMapHash},
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: commonLabels,
+				MatchLabels: labels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: commonLabels,
+					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
 					// HostNetwork must be true in order to bind to the host's network
