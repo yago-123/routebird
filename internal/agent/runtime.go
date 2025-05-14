@@ -27,9 +27,9 @@ func NewRuntime(cfg cfg.Config, client kubernetes.Interface) *Runtime {
 	return &Runtime{bgpManager, watchers}
 }
 
-func (r *Runtime) Start(ctx context.Context) error {
+func (r *Runtime) Watch(ctx context.Context) error {
 	// for _, w := range r.watchers {
-	// 		go w.Start(ctx)
+	// 		go w.Watch(ctx)
 	// }
 	<-ctx.Done()
 	return nil

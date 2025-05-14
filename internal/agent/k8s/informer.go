@@ -3,12 +3,9 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -34,44 +31,54 @@ type Watcher interface {
 // Npde-wide service watcher
 
 type watcher struct {
-	client  kubernetes.Interface
+	informerFactory informers.SharedInformerFactory
+
+	svcInformer cache.SharedIndexInformer
+	epInformer  cache.SharedIndexInformer
+	epsInformer cache.SharedIndexInformer
+
+	// todo: really needed to be stored?
 	eventCh chan<- Event
 
 	nodeName string
 	logger   logr.Logger
 }
 
-func NewWatcher(client kubernetes.Interface, eventCh chan<- Event, nodeName string, logger logr.Logger) Watcher {
+func NewWatcher(
+	informerFactory informers.SharedInformerFactory,
+	eventCh chan<- Event,
+	nodeName string,
+	logger logr.Logger,
+) Watcher {
+
+	// Service Watcher
+	svcInformer := informerFactory.Core().V1().Services().Informer()
+	_, _ = svcInformer.AddEventHandler(newHandler(eventCh))
+
+	// Endpoints Watcher
+	epInformer := informerFactory.Core().V1().Endpoints().Informer()
+	_, _ = epInformer.AddEventHandler(newHandler(eventCh))
+
+	// EndpointSlices Watcher
+	epsInformer := informerFactory.Discovery().V1().EndpointSlices().Informer()
+	_, _ = epsInformer.AddEventHandler(newHandler(eventCh))
+
 	return &watcher{
-		client:   client,
-		eventCh:  eventCh,
-		nodeName: nodeName,
-		logger:   logger,
+		informerFactory: informerFactory,
+		svcInformer:     svcInformer,
+		epInformer:      epInformer,
+		epsInformer:     epsInformer,
+		eventCh:         eventCh,
+		nodeName:        nodeName,
+		logger:          logger,
 	}
 }
 
 func (w *watcher) Watch(ctx context.Context) error {
-	factory := informers.NewSharedInformerFactoryWithOptions(
-		w.client,
-		time.Minute,
-		informers.WithNamespace(metav1.NamespaceAll), // Adjust if you want namespace scoping
-	)
+	// todo: recheck, this most likely is wrong
+	w.informerFactory.Start(ctx.Done())
 
-	// Service Informer
-	svcInformer := factory.Core().V1().Services().Informer()
-	_, _ = svcInformer.AddEventHandler(w.newHandler())
-
-	// Endpoints Informer
-	epInformer := factory.Core().V1().Endpoints().Informer()
-	_, _ = epInformer.AddEventHandler(w.newHandler())
-
-	// EndpointSlices Informer
-	epsInformer := factory.Discovery().V1().EndpointSlices().Informer()
-	_, _ = epsInformer.AddEventHandler(w.newHandler())
-
-	factory.Start(ctx.Done())
-
-	if !cache.WaitForCacheSync(ctx.Done(), svcInformer.HasSynced, epInformer.HasSynced, epsInformer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), w.svcInformer.HasSynced, w.epInformer.HasSynced, w.epsInformer.HasSynced) {
 		return fmt.Errorf("failed to sync caches")
 	}
 
@@ -79,27 +86,28 @@ func (w *watcher) Watch(ctx context.Context) error {
 	return nil
 }
 
-func (w *watcher) newHandler() cache.ResourceEventHandlerFuncs {
+func newHandler(eventCh chan<- Event) cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
-			w.sendEvent(EventAdd, obj)
+			sendEvent(EventAdd, obj, eventCh)
 		},
 		UpdateFunc: func(_, newObj any) {
-			w.sendEvent(EventUpdate, newObj)
+			sendEvent(EventUpdate, newObj, eventCh)
 		},
 		DeleteFunc: func(obj any) {
-			w.sendEvent(EventDelete, obj)
+			sendEvent(EventDelete, obj, eventCh)
 		},
 	}
 }
 
-func (w *watcher) sendEvent(eventType EventType, obj any) {
+func sendEvent(eventType EventType, obj any, eventCh chan<- Event) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		fmt.Printf("Failed to get key for object: %v\n", err)
 		return
 	}
-	w.eventCh <- Event{
+
+	eventCh <- Event{
 		Type: eventType,
 		Obj:  obj,
 		Key:  key,

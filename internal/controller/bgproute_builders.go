@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -117,7 +118,7 @@ func buildAgentDaemonSet(routeCR bgpv1alphav1.BGPRoute, configMap *corev1.Config
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        dsName,
 			Namespace:   routeCR.Namespace,
-			Labels:      labels,
+			Labels:      commonLabels,
 			Annotations: map[string]string{ConfigMapHashAnnotationKey: configMapHash},
 		},
 		Spec: appsv1.DaemonSetSpec{
