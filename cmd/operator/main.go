@@ -209,6 +209,15 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "BGPRoute")
 		os.Exit(1)
 	}
+
+	if err = (&controller.BGPAllocReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "BGPAlloc")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
