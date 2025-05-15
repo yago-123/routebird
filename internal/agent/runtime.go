@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 
+	"github.com/go-logr/logr"
+
 	"github.com/yago-123/routebird/internal/agent/bgp"
 	"github.com/yago-123/routebird/internal/agent/k8s"
 	cfg "github.com/yago-123/routebird/internal/common"
@@ -16,8 +18,8 @@ type Runtime struct {
 	watchers   []k8s.Watcher
 }
 
-func NewRuntime(cfg cfg.Config, client kubernetes.Interface) *Runtime {
-	bgpManager := bgp.NewManager(cfg.Peers, client)
+func NewRuntime(cfg cfg.Config, client kubernetes.Interface, logger logr.Logger) *Runtime {
+	bgpManager := bgp.NewManager(cfg.Peers, client, logger)
 
 	watchers := []k8s.Watcher{
 		// k8s.NewNodeWatcher(client, bgpManager),

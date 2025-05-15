@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/go-logr/logr"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
@@ -34,7 +36,6 @@ type watcher struct {
 	informerFactory informers.SharedInformerFactory
 
 	svcInformer cache.SharedIndexInformer
-	epInformer  cache.SharedIndexInformer
 	epsInformer cache.SharedIndexInformer
 
 	// todo: really needed to be stored?
@@ -53,20 +54,13 @@ func NewWatcher(
 
 	// Service Watcher
 	svcInformer := informerFactory.Core().V1().Services().Informer()
-	_, _ = svcInformer.AddEventHandler(newHandler(eventCh))
-
-	// Endpoints Watcher
-	epInformer := informerFactory.Core().V1().Endpoints().Informer()
-	_, _ = epInformer.AddEventHandler(newHandler(eventCh))
 
 	// EndpointSlices Watcher
 	epsInformer := informerFactory.Discovery().V1().EndpointSlices().Informer()
-	_, _ = epsInformer.AddEventHandler(newHandler(eventCh))
 
 	return &watcher{
 		informerFactory: informerFactory,
 		svcInformer:     svcInformer,
-		epInformer:      epInformer,
 		epsInformer:     epsInformer,
 		eventCh:         eventCh,
 		nodeName:        nodeName,
@@ -75,15 +69,65 @@ func NewWatcher(
 }
 
 func (w *watcher) Watch(ctx context.Context) error {
-	// todo: recheck, this most likely is wrong
-	w.informerFactory.Start(ctx.Done())
+	svcEventRegistration, err := w.svcInformer.AddEventHandler(newHandler(w.eventCh))
+	if err != nil {
+		return fmt.Errorf("failed to add service event handler: %w", err)
+	}
 
-	if !cache.WaitForCacheSync(ctx.Done(), w.svcInformer.HasSynced, w.epInformer.HasSynced, w.epsInformer.HasSynced) {
-		return fmt.Errorf("failed to sync caches")
+	epsEventRegistration, err := w.epsInformer.AddEventHandler(newHandler(w.eventCh))
+	if err != nil {
+		return fmt.Errorf("failed to add endpoint slices event handler: %w", err)
 	}
 
 	<-ctx.Done() // Wait until context is cancelled
+
+	err = w.svcInformer.RemoveEventHandler(svcEventRegistration)
+	if err != nil {
+		return fmt.Errorf("failed to remove service event handler: %w", err)
+	}
+
+	err = w.epsInformer.RemoveEventHandler(epsEventRegistration)
+	if err != nil {
+		return fmt.Errorf("failed to remove endpoint slices event handler: %w", err)
+	}
+
 	return nil
+}
+
+func newHandlerSvc(eventCh chan<- Event, logger logr.Logger) cache.ResourceEventHandlerFuncs {
+	return cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			if svc, ok := obj.(*corev1.Service); ok {
+				// Only support LoadBalancer type services
+				if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+					logger.Info("Service different from LoadBalancer", "service", svc.Name)
+					return
+				}
+
+				if svc.Spec.ExternalTrafficPolicy == corev1.ServiceExternalTrafficPolicyTypeLocal {
+
+				}
+
+				if svc.Spec.ExternalTrafficPolicy == corev1.ServiceExternalTrafficPolicyCluster {
+
+				}
+
+				// Only support services with selectors
+				if len(svc.Spec.Selector) == 0 {
+					logger.Info("Service has no selector", "service", svc.Name)
+					return
+				}
+
+				sendEvent(EventAdd, obj, eventCh)
+			}
+		},
+		UpdateFunc: func(_, newObj any) {
+			sendEvent(EventUpdate, newObj, eventCh)
+		},
+		DeleteFunc: func(obj any) {
+			sendEvent(EventDelete, obj, eventCh)
+		},
+	}
 }
 
 func newHandler(eventCh chan<- Event) cache.ResourceEventHandlerFuncs {

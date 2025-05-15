@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"k8s.io/client-go/tools/cache"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 
@@ -43,16 +45,35 @@ func main() {
 	nodeName := "minikube"
 	eventCh := make(chan k8s.Event, 100)
 
-	factory := informers.NewSharedInformerFactoryWithOptions(
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
 		InformerResyncInterval,
 		informers.WithNamespace(metav1.NamespaceAll),
 	)
-	watcher := k8s.NewWatcher(factory, eventCh, nodeName, logger)
-	controlLoop := k8s.NewControlLoop(factory, nodeName, logger)
+
+	svcInformer := informerFactory.Core().V1().Services().Informer()
+	epsInformer := informerFactory.Discovery().V1().EndpointSlices().Informer()
+
+	epsInformer.AddIndexers(cache.Indexers{
+		"by-service": func(obj interface{}) ([]string, error) {
+			// custom indexing logic
+
+			return []string{}, nil
+		},
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	informerFactory.Start(ctx.Done())
+
+	if !cache.WaitForCacheSync(ctx.Done(), svcInformer.HasSynced, epsInformer.HasSynced) {
+		logger.Error(fmt.Errorf("Failed to sync caches"), "svcInformer", svcInformer, "epsInformer", epsInformer)
+		return
+	}
+
+	watcher := k8s.NewWatcher(informerFactory, eventCh, nodeName, logger)
+	controlLoop := k8s.NewControlLoop(informerFactory, nodeName, logger)
 
 	go func() {
 		if errWatch := watcher.Watch(ctx); errWatch != nil {
@@ -60,7 +81,12 @@ func main() {
 		}
 	}()
 
-	controlLoop.Resync(context.Background())
+	go func() {
+		for {
+			controlLoop.Resync(context.Background())
+			time.Sleep(10 * time.Second)
+		}
+	}()
 
 	// Event processing loop
 	for evt := range eventCh {
